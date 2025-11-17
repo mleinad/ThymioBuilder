@@ -1,4 +1,5 @@
 # real_robot.py
+from cmath import cos, sin
 from Thymio_Interface import RobotInterface
 from thymiodirect import Connection, Thymio
 
@@ -37,3 +38,24 @@ class RealThymio(RobotInterface):
 
     def update(self, dt):
         pass  # nothing needed
+    
+    
+    kd = 0.0000294715747
+    deltaTime = 0.010  # should be update frequency 10htz (i think)
+
+    def get_odometry(self):
+        #check units of measurement
+        global kd
+
+        dleft = self.th[self.node_id]["motor.left.speed"] * kd * self.deltaTime
+        dright = self.th[self.node_id]["motor.right.speed"] * kd * self.deltaTime
+
+        dcenter = (dleft + dright) / 2.0
+
+        dtheta = (dright - dleft) / 9.35  # 933mm is the distance between wheels
+
+        dx  = dcenter * cos(dtheta/2)
+        dy  = dcenter * sin(dtheta/2)
+
+        return dx, dy, dtheta
+    
