@@ -1,6 +1,7 @@
 # real_robot.py
 from cmath import cos, sin
-from Thymio_Interface import RobotInterface
+import math
+from Core.Thymio_Interface import RobotInterface
 from thymiodirect import Connection, Thymio
 
 class RealThymio(RobotInterface):
@@ -42,20 +43,39 @@ class RealThymio(RobotInterface):
     
     kd = 0.0000294715747
     deltaTime = 0.010  # should be update frequency 10htz (i think)
-
+  
+  
+  
+    # ---------------- Odometry ----------------
     def get_odometry(self):
-        #check units of measurement
-        global kd
-
-        dleft = self.th[self.node_id]["motor.left.speed"] * kd * self.deltaTime
-        dright = self.th[self.node_id]["motor.right.speed"] * kd * self.deltaTime
+        """Return incremental odometry (dx, dy, dtheta) since last update."""
+        dleft  = self.th[self.node_id]["motor.left.speed"]  * self.kd * self.deltaTime
+        dright = self.th[self.node_id]["motor.right.speed"] * self.kd * self.deltaTime
 
         dcenter = (dleft + dright) / 2.0
+        dtheta  = (dright - dleft) / self.wheel_base
 
-        dtheta = (dright - dleft) / 9.35  # 933mm is the distance between wheels
-
-        dx  = dcenter * cos(dtheta/2)
-        dy  = dcenter * sin(dtheta/2)
+        dx = dcenter * math.cos(self.theta + dtheta/2.0)
+        dy = dcenter * math.sin(self.theta + dtheta/2.0)
 
         return dx, dy, dtheta
+
+    def update(self, dt):
+        """Integrate odometry into global pose."""
+        dx, dy, dtheta = self.get_odometry()
+        self.x += dx
+        self.y += dy
+        self.theta += dtheta
+
+
+    def get_position(self):
+        """Return global pose (x, y, theta)."""
+        return self.x, self.y, self.theta   
     
+
+    def set_grid(self, grid):
+        print("Grid set in RealThymio.")
+
+
+    def set_path(self, path):
+        print("Path set in RealThymio.")

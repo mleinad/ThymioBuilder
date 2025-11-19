@@ -17,5 +17,12 @@ class RobotInterface(ABC):
 
     @abstractmethod
     def update(self, dt):
-        """Called every frame or tick (sim only)."""
+        pass
+    
+    @abstractmethod
+    def set_path(self, path):
+        pass
+    
+    @abstractmethod
+    def set_grid(self, grid):
         pass
