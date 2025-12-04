@@ -1,81 +1,71 @@
-# real_robot.py
-from cmath import cos, sin
-import math
 from Core.Thymio_Interface import RobotInterface
-from thymiodirect import Connection, Thymio
+from tdmclient import ClientAsync
+import asyncio
 
 class RealThymio(RobotInterface):
-
+   
     def __init__(self):
-        port = Connection.serial_default_port()
-        self.th = Thymio(serial_port=port,
-                         on_connect=lambda node_id: print(f"{node_id} is connected"))
-        self.th.connect()
-        self.node_id = self.th.first_node()
+        # Connect to Thymio Device Manager
+        self.client = ClientAsync()
+        self.loop = asyncio.get_event_loop()
+        self.loop.run_until_complete(self._connect())
 
-        self._move_forward = 0
-        self.th.set_variable_observer(self.node_id, self._update_thread)
+        self.x = 0
+        self.y = 0
+        self.theta = 0
 
-    def _update_thread(self, node_id):
-        if self._move_forward == 1:
-            self.th[node_id]["motor.left.target"] = 10
-            self.th[node_id]["motor.right.target"] = 10
-        else:
-            self.th[node_id]["motor.left.target"] = 0
-            self.th[node_id]["motor.right.target"] = 0
+    async def _connect(self):
+        await self.client.connect()
+        self.node = await self.client.wait_for_node()
 
-  
-  
-  
+
+
+
+
+    # ---------------- Movement primitives ----------------
     def move_forward(self):
-        self._move_forward = 1
+        self._send_event("forward")
+
+    def move_backward(self):
+        self._send_event("half_back")
+
+    def rotate_left(self):
+        self._send_event("left")
+
+    def rotate_right(self):
+        self._send_event("right")
+
+    def find_block(self):
+        # Example placeholder
+        print("Block detection not implemented.")
 
     def stop(self):
-        self._move_forward = 0
+        self._send_event("stop")
 
-    def get_position(self):
 
-        return None
+
+    # ---------------- Helpers ----------------
+    def _send_event(self, event_name):
+        async def _inner():
+            await self.node.send_event(event_name)
+            # Wait for 'performed' callback
+            await self.client.wait_for_event("performed", timeout=5.0)
+        self.loop.run_until_complete(_inner())
+
 
     def update(self, dt):
-        pass  # nothing needed
-    
-    
-    kd = 0.0000294715747
-    deltaTime = 0.010  # should be update frequency 10htz (i think)
-  
-  
-  
-    # ---------------- Odometry ----------------
-    def get_odometry(self):
-        """Return incremental odometry (dx, dy, dtheta) since last update."""
-        dleft  = self.th[self.node_id]["motor.left.speed"]  * self.kd * self.deltaTime
-        dright = self.th[self.node_id]["motor.right.speed"] * self.kd * self.deltaTime
-
-        dcenter = (dleft + dright) / 2.0
-        dtheta  = (dright - dleft) / self.wheel_base
-
-        dx = dcenter * math.cos(self.theta + dtheta/2.0)
-        dy = dcenter * math.sin(self.theta + dtheta/2.0)
-
-        return dx, dy, dtheta
-
-    def update(self, dt):
-        """Integrate odometry into global pose."""
-        dx, dy, dtheta = self.get_odometry()
-        self.x += dx
-        self.y += dy
-        self.theta += dtheta
-
+        # No continuous simulation needed
+        pass
 
     def get_position(self):
-        """Return global pose (x, y, theta)."""
-        return self.x, self.y, self.theta   
-    
+        return self.x, self.y, self.theta
 
     def set_grid(self, grid):
-        print("Grid set in RealThymio.")
-
+        print("Grid set in RealThymio (ignored).")
 
     def set_path(self, path):
-        print("Path set in RealThymio.")
+        print("Path set in RealThymio (ignored).")
+
+    def set_block_manager(self, block_manager):
+        print("Block manager set in RealThymio (ignored).")
+
