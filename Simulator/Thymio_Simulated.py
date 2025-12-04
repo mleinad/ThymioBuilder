@@ -1,204 +1,148 @@
-# Simulator/Thymio_Simulated.py
-import pygame, sys, math
+# Simulator/Thymio_Simplified.py
+import math
+
+import pygame, sys
 from Environment.Grid_Map import GridMap
 from Core.Thymio_Interface import RobotInterface
-
+from Environment.Block_Manager import BlockManager
 class SimThymio(RobotInterface):
-   
-   
+
     def __init__(self):
         pygame.init()
         self.WIDTH, self.HEIGHT = 800, 600
-        self.FPS = 60
         self.screen = pygame.display.set_mode((self.WIDTH, self.HEIGHT))
-        pygame.display.set_caption("Thymio Simulator")
-        self.clock = pygame.time.Clock()
+        pygame.display.set_caption("Simple Thymio Simulator")
 
-        # Load and scale images
-        self.THYMIO_ORIGINAL = pygame.image.load("Simulator/sim_assets/thymio.png").convert_alpha()
+        # Grid setup
+        self.grid: GridMap = None
+        self.block_manager = None
+
+        # Load images (scaled to 1 grid cell)
+        self.THYMIO_IMG = pygame.image.load("Simulator/sim_assets/thymio.png").convert_alpha()
         self.CUBE_IMG = pygame.image.load("Simulator/sim_assets/cube.png").convert_alpha()
-        self.THYMIO_ORIGINAL = pygame.transform.scale(self.THYMIO_ORIGINAL, (100, 100))
-        self.CUBE_IMG = pygame.transform.scale(self.CUBE_IMG, (80, 80))
-        self.THYMIO_IMG = self.THYMIO_ORIGINAL.copy()
 
-        # Initial positions
-        self.thymio_rect = self.THYMIO_IMG.get_rect(center=(200, 300))
-        self.cube_rect   = self.CUBE_IMG.get_rect(center=(500, 300))
+        # These will be scaled later when grid is known
+        self.cell_size = None
 
-        # Masks
-        self.thymio_mask = pygame.mask.from_surface(self.THYMIO_IMG)
-        self.cube_mask   = pygame.mask.from_surface(self.CUBE_IMG)
+        # Robot state (in grid coords)
+        self.grid_x = 0
+        self.grid_y = 0
+        self.angle = 0      # 0=right, 90=up, 180=left, 270=down
 
-        # Movement
-        self.speed = 100.0          # pixels per second
-        self.rotation_speed = 90.0  # degrees per second
-        self.angle = 0
+        # Three cubes (in grid coords)
+        self.cubes = [
+            (5, 3),
+            (6, 2),
+            (4, 4)
+        ]
 
-        # Flags
-        self._move_forward = False
-        self._move_backward = False
-        self._rotate_left = False
-        self._rotate_right = False
+    # -------------------- Setup ----------------------------
 
-        # Odometry state
-        self.x, self.y, self.theta = self.thymio_rect.centerx, self.thymio_rect.centery, 0
-
-
-        # Grid and path
-        self.grid = None
-        self.path = []
-
-    # -------------- Debug --------------------
-    def handle_input(self):
-        keys = pygame.key.get_pressed()
-
-        if keys[pygame.K_UP]:
-            self.move_forward()
-        elif keys[pygame.K_DOWN]:
-            self.move_backward()
-        else:
-            self._move_forward = False
-            self._move_backward = False
-
-        # Rotation
-        if keys[pygame.K_q]:
-            self.rotate_left()
-        elif keys[pygame.K_e]:
-            self.rotate_right()
-        else:
-            self._rotate_left = False
-            self._rotate_right = False
-
-
-    # ---------------- Grid ----------------
-    def set_grid(self, grid):
+    def set_grid(self, grid: GridMap):
         self.grid = grid
+        self.cell_size = grid.cell_size
+
+        # Scale assets to grid cell size
+        self.THYMIO_IMG = pygame.transform.scale(self.THYMIO_IMG, (self.cell_size, self.cell_size))
+        self.CUBE_IMG = pygame.transform.scale(self.CUBE_IMG, (self.cell_size, self.cell_size))
 
     def set_path(self, path):
         self.path = path
 
-    def draw_grid(self, gridmap: GridMap):
-        for gy in range(gridmap.height_cells):
-            for gx in range(gridmap.width_cells):
-                rect = pygame.Rect(
-                    gx * gridmap.cell_size,
-                    gy * gridmap.cell_size,
-                    gridmap.cell_size,
-                    gridmap.cell_size
-                )
-                # Draw the cell outline
-                pygame.draw.rect(self.screen, (150, 150, 150), rect, 1)
 
-        if self.path:
-            for gx, gy in self.path:
-                rect = pygame.Rect(
-                    gx * gridmap.cell_size,
-                    gy * gridmap.cell_size,
-                    gridmap.cell_size,
-                    gridmap.cell_size
-                )
-                pygame.draw.rect(self.screen, (0, 255, 0), rect)
+    def set_block_manager(self, bm: BlockManager):
+        self.block_manager = bm
 
+    # -------------------- Movement -------------------------
 
+    def _forward_vector(self):
+        """Return dx, dy based on current angle."""
+        if self.angle == 0: return (1, 0)
+        if self.angle == 90: return (0, -1)
+        if self.angle == 180: return (-1, 0)
+        if self.angle == 270: return (0, 1)
 
-    # ---------------- Movement ----------------
     def move_forward(self):
-        self._move_forward = True
-        self._move_backward = False
+        dx, dy = self._forward_vector()
+        new_x = self.grid_x + dx
+        new_y = self.grid_y + dy
+
+        # Prevent walking into cubes
+        if (new_x, new_y) not in self.cubes:
+            self.grid_x = new_x
+            self.grid_y = new_y
 
     def move_backward(self):
-        self._move_backward = True
-        self._move_forward = False
+        dx, dy = self._forward_vector()
+        new_x = self.grid_x - dx
+        new_y = self.grid_y - dy
+
+        if (new_x, new_y) not in self.cubes:
+            self.grid_x = new_x
+            self.grid_y = new_y
 
     def rotate_left(self):
-        self._rotate_left = True
-        self._rotate_right = False
+        self.angle = (self.angle + 90) % 360
 
     def rotate_right(self):
-        self._rotate_right = True
-        self._rotate_left = False
+        self.angle = (self.angle - 90) % 360
 
-    def stop(self):
-        self._move_forward = False
-        self._move_backward = False
-        self._rotate_left = False
-        self._rotate_right = False
+    def find_block(self):
+        """Simply turn around 180 degrees."""
+        self.angle = (self.angle + 180) % 360
 
-    # ---------------- Odometry ----------------
+    # -------------------- Odometry -------------------------
+
     def get_position(self):
-        return self.x, self.y, math.radians(self.angle)
+        """Return pixel center + heading in radians."""
+        px = self.grid_x * self.cell_size + self.cell_size // 2
+        py = self.grid_y * self.cell_size + self.cell_size // 2
+        return px, py, math.radians(self.angle)
+
+    # -------------------- Render ---------------------------
+
+    def draw_grid(self):
+        for gy in range(self.grid.height_cells):
+            for gx in range(self.grid.width_cells):
+                rect = pygame.Rect(
+                    gx * self.cell_size,
+                    gy * self.cell_size,
+                    self.cell_size,
+                    self.cell_size
+                )
+                pygame.draw.rect(self.screen, (180, 180, 180), rect, 1)
+
+    def draw_blocks(self):
+        if not self.block_manager:
+            return
+
+        for block_id, block in self.block_manager.blocks.items():
+            gx, gy = block.x, block.y  # grid coordinates
+            px = gx * self.cell_size
+            py = gy * self.cell_size
+
+            # draw block as 1×1 cell
+            self.screen.blit(self.CUBE_IMG, (px, py))
+
+
+
+    def draw_thymio(self):
+        rotated = pygame.transform.rotate(self.THYMIO_IMG, -self.angle)
+        px = self.grid_x * self.cell_size
+        py = self.grid_y * self.cell_size
+
+        rect = rotated.get_rect(center=(px + self.cell_size//2,
+                                        py + self.cell_size//2))
+        self.screen.blit(rotated, rect.topleft)
+
+    # -------------------- Loop Update ----------------------
 
     def update(self, dt):
+        self.screen.fill((187, 218, 227))
 
-        self.handle_input()
-
-
-        # rotation
-        if self._rotate_left:
-            self.angle = (self.angle + self.rotation_speed * dt) % 360
-        if self._rotate_right:
-            self.angle = (self.angle - self.rotation_speed * dt) % 360
-
-        # forward/backward
-        direction = 0
-        if self._move_forward:
-            direction = 1
-        elif self._move_backward:
-            direction = -1
-
-        if direction != 0:
-            rad = math.radians(self.angle)
-            dx = direction * self.speed * dt * math.cos(rad)
-            dy = -direction * self.speed * dt * math.sin(rad)
-
-            new_rect = self.thymio_rect.copy()
-            new_rect.x += dx
-            new_rect.y += dy
-
-            offset = (self.cube_rect.x - new_rect.x, self.cube_rect.y - new_rect.y)
-            if self.thymio_mask.overlap(self.cube_mask, offset):
-                # push cube
-                self.cube_rect.x += dx
-                self.cube_rect.y += dy
-                self.cube_rect.x = max(0, min(self.cube_rect.x, self.WIDTH - self.cube_rect.width))
-                self.cube_rect.y = max(0, min(self.cube_rect.y, self.HEIGHT - self.cube_rect.height))
-            else:
-                self.thymio_rect = new_rect
-                self.x, self.y = self.thymio_rect.center
-
-        # update rotated image
-        center = self.thymio_rect.center
-        self.THYMIO_IMG = pygame.transform.rotate(self.THYMIO_ORIGINAL, self.angle)
-        self.thymio_rect = self.THYMIO_IMG.get_rect(center=center)
-        self.thymio_mask = pygame.mask.from_surface(self.THYMIO_IMG)
-
-        # render
-        self.screen.fill((187,218,227))
-        
-        self.draw_grid(self.grid)
-
-        self.screen.blit(self.CUBE_IMG, self.cube_rect)
-        self.screen.blit(self.THYMIO_IMG, self.thymio_rect)
-        
-        self.draw_mask_outline(self.thymio_mask, self.thymio_rect.topleft, (255,0,0))
-        self.draw_mask_outline(self.cube_mask, self.cube_rect.topleft, (0,0,255))
-       
-
-        blocked_cell = self.grid.world_to_grid(self.cube_rect.centerx, self.cube_rect.centery)
-        self.grid.set_cell(blocked_cell[0], blocked_cell[1], 1)  # mark as blocked
-
-        
+        self.draw_grid()
+        self.draw_blocks()
+        self.draw_thymio()
 
         pygame.display.flip()
 
-
-
-
-
-
-    # ---------------- Drawing ----------------
-    def draw_mask_outline(self, mask, offset=(0,0), color=(0,255,0)):
-        outline = mask.outline()
-        if outline:
-            shifted = [(x+offset[0], y+offset[1]) for (x,y) in outline]
-            pygame.draw.polygon(self.screen, color, shifted, 2)

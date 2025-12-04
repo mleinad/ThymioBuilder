@@ -36,3 +36,18 @@ class BlockManager:
 
     def __init__(self):
         self.blocks = {}   # block_id -> Block instance
+
+    def add_block(self, block_id, block: Block):
+        self.blocks[block_id] = block
+
+    def get_block(self, block_id):
+        return self.blocks.get(block_id, None)
+    
+    def set_block_position(self, block_id, x, y):
+        block = self.get_block(block_id)
+        if block:
+            block.x = x
+            block.y = y
+            return True
+        return False
+    
