@@ -6,7 +6,9 @@ from Core.ActionQueue import ActionQueue
 from Environment.Grid_Map import GridMap
 from Core.Thymio_Robot import RealThymio
 from Simulator.Thymio_Simulated import SimThymio
+import pygame as pg
 import Environment.Block_Manager as BlockManager
+import time
 from Environment.a_star import astar
 import Environment.Utils
 
@@ -61,6 +63,8 @@ def main():
     print("Final Command Queue:")
     action_queue.print_queue()
 
+
+
     # --------------------- GAME LOOP ------------------------
     last_move_time = pg.time.get_ticks()
     move_delay = 500  # 0.5 seconds per move
@@ -90,7 +94,8 @@ def main():
                     robot.rotate_left()
                 elif action == "PB":
                     robot.find_block()
-
+                else:
+                    print(f"Unknown action: {action}")
                 last_move_time = current_time
 
         # Update Simulator Display

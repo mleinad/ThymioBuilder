@@ -62,13 +62,35 @@ class SimThymio(RobotInterface):
         if self.angle == 180: return (-1, 0)
         if self.angle == 270: return (0, 1)
 
+    def _get_block_at(self, gx, gy):
+        """Return block at given grid cell, or None."""
+        if not self.block_manager:
+            return None
+        for block in self.block_manager.blocks.values():
+            bx, by = int(block.x), int(block.y)
+            if bx == gx and by == gy:
+                return block
+        return None
+
     def move_forward(self):
         dx, dy = self._forward_vector()
         new_x = self.grid_x + dx
         new_y = self.grid_y + dy
 
-        # Prevent walking into cubes
-        if (new_x, new_y) not in self.cubes:
+        block = self._get_block_at(new_x, new_y)
+        if block:
+            # Try to push block further
+            block_new_x = new_x + dx
+            block_new_y = new_y + dy
+            # Only push if target cell is empty
+            if not self._get_block_at(block_new_x, block_new_y):
+                block.x = block_new_x
+                block.y = block_new_y
+                # Move robot into block's old cell
+                self.grid_x = new_x
+                self.grid_y = new_y
+        else:
+            # No block, move freely
             self.grid_x = new_x
             self.grid_y = new_y
 
@@ -77,7 +99,16 @@ class SimThymio(RobotInterface):
         new_x = self.grid_x - dx
         new_y = self.grid_y - dy
 
-        if (new_x, new_y) not in self.cubes:
+        block = self._get_block_at(new_x, new_y)
+        if block:
+            block_new_x = new_x - dx
+            block_new_y = new_y - dy
+            if not self._get_block_at(block_new_x, block_new_y):
+                block.x = block_new_x
+                block.y = block_new_y
+                self.grid_x = new_x
+                self.grid_y = new_y
+        else:
             self.grid_x = new_x
             self.grid_y = new_y
 
