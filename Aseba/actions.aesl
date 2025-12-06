@@ -1,0 +1,237 @@
+<!DOCTYPE aesl-source>
+<network>
+
+
+<!--list of global events-->
+<event size="10" name="action_queue"/>
+
+
+<!--node Thymio-II-->
+<node nodeId="{ff067687-6959-4893-b0ab-04a9b9fd9a6f}" name="Thymio-II"><![CDATA[# -----------------------------
+# Parameters
+# -----------------------------
+var kd = 29 
+var CELL_FULL = 885
+var CELL_RR = 12200
+var CELL_HALF = 200
+var L = 11
+
+var BACK_DETECT = 0
+
+var ALIGN_SPEED_BASE =0
+# -----------------------------
+# Parameters for alignment
+# -----------------------------
+var KP_ALIGN = 8          # proportional gain
+var MAX_TURN = 200        # clamp for correction
+var ALIGN_THRESHOLD = 50  # acceptable error magnitude
+
+# -----------------------------
+# State variables
+# -----------------------------
+var error = 0
+var correction = 0
+
+# -----------------------------
+# Odometry state
+# -----------------------------
+var dleft = 0
+var dright = 0
+var dcenter = 0
+
+var theta = 0
+var acc_theta = 0
+var traveled = 0
+var moving = 0
+
+var CELL_DIST = 0
+var action = 0
+
+# PID internal state
+var e_prev = 0
+var e_int = 0
+
+var s6= 0
+var s5=0
+
+timer.period[0] = 10   # 10Hz update
+
+# -----------------------------
+# Stop motors
+# -----------------------------
+sub stop_motors
+    action = 1
+    motor.left.target = 0
+    motor.right.target = 0
+    moving = 0
+
+# -----------------------------
+# Timer loop
+# -----------------------------
+onevent timer0
+ 	if moving == 6 then
+        s5 = prox.horizontal[5]
+        s6 = prox.horizontal[6]
+
+        error = s5 - s6
+        emit angle[error]
+
+        # check if aligned
+        if error < ALIGN_THRESHOLD and error > -ALIGN_THRESHOLD then
+            callsub stop_motors
+            emit performed[1]
+        else
+            # proportional correction
+            correction = error * KP_ALIGN
+
+            # clamp correction
+            if correction > MAX_TURN then
+                correction = MAX_TURN
+            end
+            if correction < -MAX_TURN then
+                correction = -MAX_TURN
+            end
+
+            # pivoting motion: opposite speeds
+            motor.left.target  = correction
+            motor.right.target = -correction
+        end
+
+   elseif moving == 1 or moving == 3 then
+        call math.muldiv(dleft,  motor.left.speed, kd, 1000)
+        call math.muldiv(dright, motor.right.speed, kd, 1000)
+        dcenter = (dleft + dright) / 2
+        traveled += dcenter
+        emit coords [traveled]
+
+        if moving == 1 and traveled >= CELL_DIST then
+            callsub stop_motors
+            emit performed[1]
+        end
+
+        if moving == 3 and traveled <= -CELL_DIST then
+            callsub stop_motors
+            emit performed[1]
+        end
+
+    elseif moving == 2 then
+        call math.muldiv(dleft,  motor.left.speed, kd, 10)
+        call math.muldiv(dright, motor.right.speed, kd, 10)
+        theta = (dright - dleft) / L
+        acc_theta += theta
+        emit angle[acc_theta]
+
+        if acc_theta >= CELL_RR then
+            callsub stop_motors
+            emit performed[1]
+        end
+
+        if acc_theta <= -CELL_RR then
+            callsub stop_motors
+            emit performed[1]
+        end
+
+    elseif moving == 4 then
+        # Non-stop backward until rear sensors detect
+        if prox.horizontal[5] > BACK_DETECT or prox.horizontal[6] > BACK_DETECT then
+            callsub stop_motors
+            emit performed[1]
+        else
+            motor.left.target  = -150
+            motor.right.target = -150
+        end
+
+    end
+
+# -----------------------------
+# Subroutines
+# -----------------------------
+sub move_one_cell
+    emit performed[0]
+    traveled = 0
+    moving = 1
+    motor.left.target = 250
+    motor.right.target = 250
+    CELL_DIST = CELL_FULL
+
+sub move_half_cell_forward
+    emit performed[0]
+    traveled = 0
+    moving = 1
+    motor.left.target = 150
+    motor.right.target = 150
+    CELL_DIST = CELL_HALF
+
+sub move_half_cell_back
+    emit performed[0]
+    traveled = 0
+    moving = 3
+    motor.left.target = -150
+    motor.right.target = -150
+    CELL_DIST = CELL_HALF
+
+sub move_cell_back
+    emit performed[0]
+    traveled = 0
+    moving = 3
+    motor.left.target = -250
+    motor.right.target = -250
+    CELL_DIST = CELL_FULL
+
+sub rotate_left
+    acc_theta = 0
+    moving = 2
+    motor.left.target = -150
+    motor.right.target = 150
+
+sub rotate_right
+    acc_theta = 0
+    moving = 2
+    motor.left.target = 150
+    motor.right.target = -150
+
+sub non_stop_backwards
+    emit performed[0]
+    moving = 4
+    motor.left.target  = -150
+    motor.right.target = -150
+
+sub align_to_rear_wall
+    emit performed[0]
+    moving = 6
+   
+    motor.left.target  = 0
+    motor.right.target = 0
+
+# -----------------------------
+# Events
+# -----------------------------
+onevent forward
+    callsub move_one_cell
+
+onevent half_forward
+    callsub move_half_cell_forward
+
+onevent half_back
+    callsub move_half_cell_back
+
+onevent backwards
+    callsub move_cell_back
+
+onevent left
+    callsub rotate_left
+
+onevent right
+    callsub rotate_right
+
+onevent non_stop_backwards
+    callsub non_stop_backwards
+
+onevent align_back
+    callsub align_to_rear_wall
+    
+    
+]]></node>
+
+
+</network>
