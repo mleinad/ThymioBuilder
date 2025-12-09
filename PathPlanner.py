@@ -228,9 +228,13 @@ class PathPlanner:
         full_queue.extend(approach_cmds)
         print(f"Phase 1 (Approach): {len(approach_cmds)} moves")
 
+
+        full_queue.extend(["AB"])  # Align Block + Approach Block
+
         # 3. Phase 2: Transport
         transport_cmds = self.generate_transport_phase(block_path)
         full_queue.extend(transport_cmds)
         print(f"Phase 2 (Transport): {len(transport_cmds)} moves")
+
 
         return full_queue

@@ -49,8 +49,8 @@ def main():
     robot_start = (0, 0)
     robot_angle = 0  # 0=East
 
-    block_start = (7,7)  # Where the block is now
-    block_goal = (5,5)  # Where you want it to go
+    block_start = (0,4)  # Where the block is now
+    block_goal = (0,5)  # Where you want it to go
 
     # 5. Generate ALL commands
     print(f"Generating mission from {block_start} to {block_goal}...")
