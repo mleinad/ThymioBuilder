@@ -11,6 +11,53 @@ class PathPlanner:
     # CORE UTILITIES
     # =========================================================================
 
+    
+    
+    def update_grid(self, new_grid):
+        self.grid = new_grid
+
+
+
+
+    # --------------------- Grid Odometry -------------------------------
+    def set_robot_state(self, pos, angle):
+        """Explicitly set robot position and orientation."""
+        self.robot_pos = pos
+        self.robot_angle = angle
+
+    def get_robot_state(self):
+        """Return current robot position and orientation."""
+        return self.robot_pos, self.robot_angle
+
+    def apply_command(self, command):
+        """Update robot state based on a single command."""
+        if command == "F":
+            # Move forward one cell in the current orientation
+            if self.robot_angle == 0:   # East
+                self.robot_pos = (self.robot_pos[0] + 1, self.robot_pos[1])
+            elif self.robot_angle == 180:  # West
+                self.robot_pos = (self.robot_pos[0] - 1, self.robot_pos[1])
+            elif self.robot_angle == 90:   # South
+                self.robot_pos = (self.robot_pos[0], self.robot_pos[1] + 1)
+            elif self.robot_angle == 270:  # North
+                self.robot_pos = (self.robot_pos[0], self.robot_pos[1] - 1)
+
+        elif command == "TR":
+            self.robot_angle = (self.robot_angle + 90) % 360
+        elif command == "TL":
+            self.robot_angle = (self.robot_angle - 90) % 360
+        # "AB" or other block‑specific commands don’t move the robot itself
+
+    def apply_commands(self, commands):
+        """Apply a sequence of commands to update robot state."""
+        for cmd in commands:
+            self.apply_command(cmd)
+        return self.get_robot_state()
+
+     # ------------------------------------------------------------------
+
+
+
     def get_angle_between(self, p1, p2):
         """Returns the angle (0, 90, 180, 270) pointing from p1 to p2."""
         dx = p2[0] - p1[0]
@@ -160,8 +207,10 @@ class PathPlanner:
 
         if len(block_path) < 2: return []
 
-        # 1. Initial Push (Robot is already aligned from Phase 1)
-        commands.append("F")
+        # 1. Initial Align+Push: always align before the very first push
+        commands.append("AB")   # Align Block (primitive) before starting to push
+        commands.append("F")    # Initial push
+
 
         # 2. Follow the path
         for i in range(1, len(block_path) - 1):
@@ -189,7 +238,9 @@ class PathPlanner:
                     # LEFT TURN -> Maneuver Right
                     commands.extend(self.get_maneuver_sequence("LEFT_TURN"))
 
-                # Push after maneuver
+                # After the maneuver, the robot *prepares to push again*:
+                # ensure alignment before the push
+                commands.append("AB")
                 commands.append("F")
 
         return commands
@@ -205,6 +256,10 @@ class PathPlanner:
         print(f"--- PLANNING MISSION ---")
         print(f"Robot: {robot_pos} facing {robot_angle}")
         print(f"Block: {block_start} -> {block_goal}")
+
+
+        self.set_robot_state(robot_pos, robot_angle)
+
 
         full_queue = []
 
@@ -226,14 +281,15 @@ class PathPlanner:
             pass
 
         full_queue.extend(approach_cmds)
+        self.apply_commands(approach_cmds)
         print(f"Phase 1 (Approach): {len(approach_cmds)} moves")
 
 
-        full_queue.extend(["AB"])  # Align Block + Approach Block
 
         # 3. Phase 2: Transport
         transport_cmds = self.generate_transport_phase(block_path)
         full_queue.extend(transport_cmds)
+        self.apply_commands(transport_cmds) 
         print(f"Phase 2 (Transport): {len(transport_cmds)} moves")
 
 

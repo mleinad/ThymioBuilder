@@ -4,6 +4,17 @@
 
 <!--list of global events-->
 <event size="10" name="action_queue"/>
+<event size="0" name="align_block"/>
+<event size="0" name="approach_block"/>
+<event size="0" name="backwards"/>
+<event size="0" name="face_block"/>
+<event size="0" name="forward"/>
+<event size="0" name="half_back"/>
+<event size="0" name="half_forward"/>
+<event size="0" name="left"/>
+<event size="1" name="paused"/>
+<event size="1" name="performed"/>
+<event size="0" name="right"/>
 
 
 <!--node Thymio-II-->
@@ -15,22 +26,6 @@ var CELL_FULL = 885
 var CELL_RR = 12200
 var CELL_HALF = 200
 var L = 11
-
-var BACK_DETECT = 0
-
-var ALIGN_SPEED_BASE =0
-# -----------------------------
-# Parameters for alignment
-# -----------------------------
-var KP_ALIGN = 8          # proportional gain
-var MAX_TURN = 200        # clamp for correction
-var ALIGN_THRESHOLD = 50  # acceptable error magnitude
-
-# -----------------------------
-# State variables
-# -----------------------------
-var error = 0
-var correction = 0
 
 # -----------------------------
 # Odometry state
@@ -47,15 +42,44 @@ var moving = 0
 var CELL_DIST = 0
 var action = 0
 
+
+
+var ACTION_QUEUE[10]
+var act
+var queue_index = 0
+
+
+
+# Pause
+var pause_active = 0
+var pause_time = 0
+var PAUSE_DURATION = 50
+
+
+var on_performed = 0
+
 # PID internal state
-var e_prev = 0
-var e_int = 0
 
-var s6= 0
-var s5=0
+var pid_align_active = 0
+var pid_align_time = 0
+var pid_start_time = 0
 
-timer.period[0] = 10   # 10Hz update
+var pid_left = 0
+var pid_right = 0
+var pid_error = 0
+var pid_correction = 0
 
+var KP_ALIGNMENT = 8       # Tune this
+var ALIGNMENT_THRESHOLD = 10
+var MAX_TURN_SPEED = 150
+var PID_ALIGNMENT_DURATION = 150    
+
+
+
+var break = 0
+
+
+timer.period[0] = 10  
 # -----------------------------
 # Stop motors
 # -----------------------------
@@ -65,53 +89,50 @@ sub stop_motors
     motor.right.target = 0
     moving = 0
 
+   
+sub performed_action                
+   
+    callsub stop_motors
+      # Consume next queued action IF available
+      
+   	pause_active = 1
+    pause_time = 0    
+    
+    if queue_index >= 10 then
+		on_performed = 1
+    end
+ 
 # -----------------------------
 # Timer loop
 # -----------------------------
+
 onevent timer0
- 	if moving == 6 then
-        s5 = prox.horizontal[5]
-        s6 = prox.horizontal[6]
 
-        error = s5 - s6
-        emit angle[error]
-
-        # check if aligned
-        if error < ALIGN_THRESHOLD and error > -ALIGN_THRESHOLD then
-            callsub stop_motors
-            emit performed[1]
-        else
-            # proportional correction
-            correction = error * KP_ALIGN
-
-            # clamp correction
-            if correction > MAX_TURN then
-                correction = MAX_TURN
+	 if pause_active == 1 then
+        pause_time += 1
+                   	
+        if pause_time >= PAUSE_DURATION then
+     
+            pause_active = 0
+            if queue_index < 10 then
+                callsub execute_next_action
             end
-            if correction < -MAX_TURN then
-                correction = -MAX_TURN
-            end
-
-            # pivoting motion: opposite speeds
-            motor.left.target  = correction
-            motor.right.target = -correction
         end
+        return   # skip other logic while paused
+    end
 
-   elseif moving == 1 or moving == 3 then
+	if moving == 1 or moving == 3 then
         call math.muldiv(dleft,  motor.left.speed, kd, 1000)
         call math.muldiv(dright, motor.right.speed, kd, 1000)
         dcenter = (dleft + dright) / 2
         traveled += dcenter
-        emit coords [traveled]
 
         if moving == 1 and traveled >= CELL_DIST then
-            callsub stop_motors
-            emit performed[1]
+            callsub performed_action
         end
 
         if moving == 3 and traveled <= -CELL_DIST then
-            callsub stop_motors
-            emit performed[1]
+            callsub performed_action
         end
 
     elseif moving == 2 then
@@ -119,27 +140,63 @@ onevent timer0
         call math.muldiv(dright, motor.right.speed, kd, 10)
         theta = (dright - dleft) / L
         acc_theta += theta
-        emit angle[acc_theta]
 
         if acc_theta >= CELL_RR then
-            callsub stop_motors
-            emit performed[1]
+            callsub performed_action
         end
 
         if acc_theta <= -CELL_RR then
-            callsub stop_motors
-            emit performed[1]
+            callsub performed_action
+        end
+        
+        
+    elseif moving == 4 then
+    
+    		if prox.horizontal[5]  >= 4450 or prox.horizontal[5]  >= 4450  then
+    			callsub performed_action
+    		end
+        
+    # ------------------------------------------------------
+    # PID ALIGNMENT WITH REAR SENSORS (P Control Only)
+    # ------------------------------------------------------
+   else if pid_align_active == 1 then
+        
+        # Read rear sensors (same as your Python)
+        pid_left  = prox.horizontal[5]
+        pid_right = prox.horizontal[6]
+
+        pid_error = pid_left - pid_right
+        if pid_error < 0 then
+            pid_error = -pid_error
         end
 
-    elseif moving == 4 then
-        # Non-stop backward until rear sensors detect
-        if prox.horizontal[5] > BACK_DETECT or prox.horizontal[6] > BACK_DETECT then
+        # Stop when aligned
+        if pid_error <= ALIGNMENT_THRESHOLD then
             callsub stop_motors
-            emit performed[1]
-        else
-            motor.left.target  = -150
-            motor.right.target = -150
+            pid_align_active = 0
+            callsub performed_action
+            return
         end
+
+        # Compute correction = KP * error * sign
+        pid_correction = KP_ALIGNMENT * (prox.horizontal[5] - prox.horizontal[6])
+
+        # Clamp output
+        if pid_correction >  MAX_TURN_SPEED then pid_correction =  MAX_TURN_SPEED end
+        if pid_correction < -MAX_TURN_SPEED then pid_correction = -MAX_TURN_SPEED end
+
+        motor.left.target  =  pid_correction
+        motor.right.target = -pid_correction
+
+        # Timeout
+        pid_align_time += 1
+        if pid_align_time >= PID_ALIGNMENT_DURATION then
+            callsub stop_motors
+            pid_align_active = 0
+            callsub performed_action
+        end
+    end
+
 
     end
 
@@ -147,7 +204,6 @@ onevent timer0
 # Subroutines
 # -----------------------------
 sub move_one_cell
-    emit performed[0]
     traveled = 0
     moving = 1
     motor.left.target = 250
@@ -155,7 +211,6 @@ sub move_one_cell
     CELL_DIST = CELL_FULL
 
 sub move_half_cell_forward
-    emit performed[0]
     traveled = 0
     moving = 1
     motor.left.target = 150
@@ -163,7 +218,6 @@ sub move_half_cell_forward
     CELL_DIST = CELL_HALF
 
 sub move_half_cell_back
-    emit performed[0]
     traveled = 0
     moving = 3
     motor.left.target = -150
@@ -171,7 +225,6 @@ sub move_half_cell_back
     CELL_DIST = CELL_HALF
 
 sub move_cell_back
-    emit performed[0]
     traveled = 0
     moving = 3
     motor.left.target = -250
@@ -190,23 +243,27 @@ sub rotate_right
     motor.left.target = 150
     motor.right.target = -150
 
-sub non_stop_backwards
-    emit performed[0]
-    moving = 4
-    motor.left.target  = -150
-    motor.right.target = -150
+    
+    
+sub align_with_block_pid
+    # Prepare PID alignment state
+    pid_align_active = 1
+    pid_align_time = 0
 
-sub align_to_rear_wall
-    emit performed[0]
-    moving = 6
-   
     motor.left.target  = 0
     motor.right.target = 0
+
+sub move_to_block
+ moving = 4
+  motor.left.target  = -50
+  motor.right.target = -50
+
 
 # -----------------------------
 # Events
 # -----------------------------
 onevent forward
+	emit performed[1]
     callsub move_one_cell
 
 onevent half_forward
@@ -224,13 +281,61 @@ onevent left
 onevent right
     callsub rotate_right
 
-onevent non_stop_backwards
-    callsub non_stop_backwards
+onevent align_block
+   callsub align_with_block_pid
+   
+ onevent approach_block
+ 	callsub move_to_block
 
-onevent align_back
-    callsub align_to_rear_wall
+onevent action_queue
     
+
+    ACTION_QUEUE[0] = event.args[0]
+    ACTION_QUEUE[1] = event.args[1]
+    ACTION_QUEUE[2] = event.args[2]
+    ACTION_QUEUE[3] = event.args[3]
+    ACTION_QUEUE[4] = event.args[4]
+    ACTION_QUEUE[5] = event.args[5]
+    ACTION_QUEUE[6] = event.args[6]
+    ACTION_QUEUE[7] = event.args[7]
+    ACTION_QUEUE[8] = event.args[8]
+    ACTION_QUEUE[9] = event.args[9]
     
+        on_performed = 0
+        queue_index = 0   # reset consumption pointer
+    
+    callsub execute_next_action
+  
+  
+  
+    
+
+sub execute_next_action
+    act = ACTION_QUEUE[queue_index]
+
+    if act == 0 then
+        # 0 = no action, skip
+        queue_index += 1
+        return
+    end
+
+    if act == 1 then callsub move_one_cell end
+    if act == 2 then callsub move_half_cell_forward end
+    if act == 3 then callsub move_half_cell_back end
+    if act == 4 then callsub rotate_left end
+    if act == 5 then callsub rotate_right end
+    if act == 6 then callsub move_cell_back end    	
+    if act == 7 then callsub align_with_block_pid end
+    if act == 8 then callsub move_to_block end
+  
+    queue_index += 1
+
+
+
+
+onevent button.center
+on_performed = 1
+emit performed[1]    
 ]]></node>
 
 
